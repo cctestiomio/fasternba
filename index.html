@@ -1,31 +1,58 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NBA Score Feed Race</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <main>
-      <header class="hero">
-        <div>
-          <p class="eyebrow">⚡ NBA score feed race</p>
-          <h1>ESPN API vs NBA CDN update speed checker</h1>
-          <p class="subtext">Polls both feeds every <b id="pollEvery">3 seconds</b>, detects score changes per source, and sorts current live games first.</p>
-        </div>
-        <div class="statusPanel">
-          <div><span>Live games</span><b id="liveCount">0</b></div>
-          <div><span>Last poll</span><b id="lastPoll">—</b></div>
-          <div><span>Next poll</span><b id="nextPoll">—</b></div>
-          <button id="refreshBtn">↻ Refresh now</button>
-        </div>
-      </header>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sports API Speed Race</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Free/public score feed comparator</p>
+      <h1>Sports API Speed Race</h1>
+      <p class="sub">NBA, MLB, NFL, and NHL score feeds side by side. Polls every <strong id="intervalText">3s</strong> and records which endpoint shows a score change first.</p>
+    </div>
+    <div class="controls">
+      <label>Sport
+        <select id="sportFilter">
+          <option value="all">All sports</option>
+          <option value="nba">NBA</option>
+          <option value="mlb">MLB</option>
+          <option value="nfl">NFL</option>
+          <option value="nhl">NHL</option>
+        </select>
+      </label>
+      <label>Refresh ms
+        <input id="refreshMs" type="number" min="3000" step="1000" value="3000" />
+      </label>
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset timings</button>
+    </div>
+  </header>
 
-      <section class="sourceGrid" id="sources"></section>
-      <section class="games" id="games"><div class="empty">Loading NBA feeds...</div></section>
-      <footer>Tip: leave this open during live NBA games. The first source to show each score change wins that event.</footer>
-    </main>
-    <script type="module" src="/app.js"></script>
-  </body>
+  <main>
+    <section class="statusbar">
+      <div><span class="dot" id="liveDot"></span><span id="stateText">Starting…</span></div>
+      <div>Last poll: <span id="lastPoll">never</span></div>
+      <div>Feeds checked: <span id="feedCount">0</span></div>
+    </section>
+    <section id="sportSections"></section>
+  </main>
+
+  <template id="sportTemplate">
+    <section class="sport-card">
+      <div class="sport-head">
+        <div>
+          <h2></h2>
+          <p class="sport-meta"></p>
+        </div>
+      </div>
+      <div class="feed-grid"></div>
+      <div class="games"></div>
+    </section>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
 </html>

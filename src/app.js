@@ -1,228 +1,167 @@
-const POLL_MS = Number(new URLSearchParams(location.search).get('pollMs') || 3000);
-const SOURCES = [
-  { id: 'nba', label: 'NBA CDN', endpoint: '/api/nba' },
-  { id: 'espn', label: 'ESPN API', endpoint: '/api/espn' }
-];
-
+const DEFAULT_REFRESH_MS = 3000;
 const state = {
-  snapshots: { nba: null, espn: null },
-  errors: { nba: null, espn: null },
-  history: {},
-  previousGames: { nba: new Map(), espn: new Map() },
-  polling: false,
-  lastPollAt: null,
+  paused: false,
+  refreshMs: DEFAULT_REFRESH_MS,
   timer: null,
-  countdownTimer: null
+  lastSnapshot: null,
+  history: new Map(), // sport|gameKey|sourceId -> {scoreKey,lastSeenScoreChangeAt,firstSeenAt}
+  raceWins: new Map() // sport|gameKey|scoreKey -> {sourceId,sourceName,at}
 };
 
 const $ = (id) => document.getElementById(id);
-const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
-const nowIso = () => new Date().toISOString();
+const sportSections = $('sportSections');
+const sportTemplate = $('sportTemplate');
 
-function fmtTime(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+$('refreshMs').addEventListener('change', () => {
+  state.refreshMs = Math.max(3000, Number($('refreshMs').value || DEFAULT_REFRESH_MS));
+  $('refreshMs').value = state.refreshMs;
+  $('intervalText').textContent = `${(state.refreshMs/1000).toFixed(state.refreshMs % 1000 ? 1 : 0)}s`;
+  restart();
+});
+$('sportFilter').addEventListener('change', () => pollNow());
+$('pauseBtn').addEventListener('click', () => {
+  state.paused = !state.paused;
+  $('pauseBtn').textContent = state.paused ? 'Resume' : 'Pause';
+  $('stateText').textContent = state.paused ? 'Paused' : 'Running';
+  $('liveDot').className = state.paused ? 'dot paused' : 'dot';
+  if (!state.paused) pollNow();
+});
+$('resetBtn').addEventListener('click', () => {
+  state.history.clear(); state.raceWins.clear(); render(state.lastSnapshot);
+});
+
+function restart() {
+  clearInterval(state.timer);
+  state.timer = setInterval(() => { if (!state.paused) pollNow(); }, state.refreshMs);
+}
+function fmtTime(isoOrMs) {
+  if (!isoOrMs) return '—';
+  const d = typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-
-function secondsAgo(iso) {
-  if (!iso) return '—';
-  const diff = Math.max(0, Date.now() - new Date(iso).getTime());
-  return `${(diff / 1000).toFixed(1)}s ago`;
+function ago(ms) {
+  if (!ms) return '—';
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s}s ago`;
+  return `${Math.floor(s/60)}m ${s%60}s ago`;
 }
-
-function canonicalKey(game) {
-  const away = String(game?.away?.short || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const home = String(game?.home?.short || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return `${away}-${home}`;
-}
-
-function scoreChanged(a, b) {
-  if (!a || !b) return false;
-  return a.away?.score !== b.away?.score || a.home?.score !== b.home?.score;
-}
-
-function statusRank(pair) {
-  if (pair.nba?.isLive || pair.espn?.isLive) return 0;
-  if (!(pair.nba?.isFinal || pair.espn?.isFinal)) return 1;
-  return 2;
-}
-
-function statusText(pair) {
-  if (pair.nba?.isLive || pair.espn?.isLive) return 'LIVE';
-  if (pair.nba?.isFinal || pair.espn?.isFinal) return 'FINAL';
-  return 'SCHEDULED';
-}
-
-function getLeader(history) {
-  const nbaAt = history?.nba?.lastScoreChangeAt;
-  const espnAt = history?.espn?.lastScoreChangeAt;
-  if (!nbaAt && !espnAt) return { label: 'Waiting for score change', className: 'neutral' };
-  if (nbaAt && !espnAt) return { label: 'NBA updated first', className: 'nba' };
-  if (!nbaAt && espnAt) return { label: 'ESPN updated first', className: 'espn' };
-  const n = new Date(nbaAt).getTime();
-  const e = new Date(espnAt).getTime();
-  const delta = Math.abs(n - e) / 1000;
-  if (Math.abs(n - e) < 250) return { label: 'Tie / same poll', className: 'neutral' };
-  return n < e
-    ? { label: `NBA faster by ${delta.toFixed(1)}s`, className: 'nba' }
-    : { label: `ESPN faster by ${delta.toFixed(1)}s`, className: 'espn' };
-}
-
-async function fetchSource(source) {
-  const requestedAt = nowIso();
-  const res = await fetch(`${source.endpoint}?clientTs=${Date.now()}`, { cache: 'no-store' });
-  const receivedAt = nowIso();
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.ok === false) throw new Error(json.error || `${source.label} HTTP ${res.status}`);
-  return { ...json, requestedAt, receivedAt };
-}
-
-async function pollOnce() {
-  if (state.polling) return;
-  state.polling = true;
-  $('refreshBtn').disabled = true;
-  $('refreshBtn').textContent = '↻ Polling...';
-
-  const settled = await Promise.allSettled(SOURCES.map(fetchSource));
-  const updated = {};
-
-  settled.forEach((result, i) => {
-    const source = SOURCES[i];
-    if (result.status === 'fulfilled') {
-      updated[source.id] = result.value;
-      state.snapshots[source.id] = result.value;
-      state.errors[source.id] = null;
-    } else {
-      state.errors[source.id] = result.reason?.message || String(result.reason);
-    }
-  });
-
-  for (const source of SOURCES) {
-    const payload = updated[source.id];
-    if (!payload?.games) continue;
-    const previousMap = state.previousGames[source.id] || new Map();
-    const newMap = new Map();
-    for (const game of payload.games) {
-      const key = canonicalKey(game);
-      newMap.set(key, game);
-      const previous = previousMap.get(key);
-      if (scoreChanged(previous, game)) {
-        state.history[key] = {
-          ...(state.history[key] || {}),
-          [source.id]: {
-            ...(state.history[key]?.[source.id] || {}),
-            lastScoreChangeAt: payload.receivedAt,
-            lastScore: `${game.away.score}-${game.home.score}`,
-            changes: (state.history[key]?.[source.id]?.changes || 0) + 1
-          }
-        };
+function keyFor(g, sourceId = g.sourceId) { return `${g.sport}|${g.key}|${sourceId}`; }
+function raceKey(g) { return `${g.sport}|${g.key}|${g.scoreKey}`; }
+function updateHistory(snapshot) {
+  const now = Date.now();
+  for (const sport of snapshot.sports || []) {
+    for (const g of sport.games || []) {
+      const k = keyFor(g);
+      const prev = state.history.get(k);
+      if (!prev) {
+        state.history.set(k, { scoreKey: g.scoreKey, lastSeenScoreChangeAt: now, firstSeenAt: now });
+      } else if (prev.scoreKey !== g.scoreKey) {
+        state.history.set(k, { ...prev, scoreKey: g.scoreKey, lastSeenScoreChangeAt: now });
+      }
+      const rk = raceKey(g);
+      if (!state.raceWins.has(rk)) {
+        state.raceWins.set(rk, { sourceId: g.sourceId, sourceName: g.sourceName, at: now });
       }
     }
-    state.previousGames[source.id] = newMap;
   }
-
-  state.lastPollAt = nowIso();
-  state.polling = false;
-  $('refreshBtn').disabled = false;
-  $('refreshBtn').textContent = '↻ Refresh now';
-  render();
 }
-
-function getGamePairs() {
-  const pairs = new Map();
-  for (const source of SOURCES) {
-    for (const game of state.snapshots[source.id]?.games || []) {
-      const key = canonicalKey(game);
-      pairs.set(key, { ...(pairs.get(key) || {}), [source.id]: game, key });
-    }
+async function pollNow() {
+  $('stateText').textContent = 'Polling…';
+  $('liveDot').className = 'dot loading';
+  try {
+    const sport = $('sportFilter').value;
+    const url = `/api/snapshot?sport=${encodeURIComponent(sport)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    state.lastSnapshot = data;
+    updateHistory(data);
+    render(data);
+    $('stateText').textContent = 'Running';
+    $('liveDot').className = 'dot';
+  } catch (err) {
+    $('stateText').textContent = `Error: ${err.message}`;
+    $('liveDot').className = 'dot error';
   }
-  return Array.from(pairs.values()).sort((a, b) => {
-    const rank = statusRank(a) - statusRank(b);
-    if (rank !== 0) return rank;
-    const startA = new Date((a.nba || a.espn)?.startTime || 0).getTime();
-    const startB = new Date((b.nba || b.espn)?.startTime || 0).getTime();
-    return startA - startB;
-  });
 }
-
-function renderSources() {
-  $('sources').innerHTML = SOURCES.map(source => {
-    const payload = state.snapshots[source.id];
-    const error = state.errors[source.id];
-    return `<article class="sourceCard">
-      <div class="sourceTitle">📡 ${esc(source.label)}</div>
-      <p>Latency: <b>${esc(payload?.latencyMs ?? '—')} ms</b></p>
-      <p>Fetched: <b>${esc(fmtTime(payload?.receivedAt || payload?.fetchedAt))}</b></p>
-      ${error ? `<p class="error">${esc(error)}</p>` : ''}
-    </article>`;
-  }).join('');
-}
-
-function renderGames() {
-  const games = getGamePairs();
-  $('liveCount').textContent = games.filter(g => g.nba?.isLive || g.espn?.isLive).length;
-  if (!games.length) {
-    $('games').innerHTML = '<div class="empty">No NBA games returned yet. It will keep polling every 3 seconds.</div>';
-    return;
+function groupGames(games) {
+  const map = new Map();
+  for (const g of games || []) {
+    if (!map.has(g.key)) map.set(g.key, { key: g.key, sport: g.sport, away: g.away, home: g.home, startTime: g.startTime, bestRank: g.rank ?? 3, rows: [] });
+    const item = map.get(g.key);
+    item.bestRank = Math.min(item.bestRank, g.rank ?? 3);
+    item.rows.push(g);
+    if (!item.away && g.away) item.away = g.away;
+    if (!item.home && g.home) item.home = g.home;
+    if (!item.startTime && g.startTime) item.startTime = g.startTime;
   }
-
-  $('games').innerHTML = games.map(pair => {
-    const game = pair.nba || pair.espn;
-    const h = state.history[pair.key] || {};
-    const leader = getLeader(h);
-    const status = statusText(pair);
-    return `<article class="gameCard ${status.toLowerCase()}">
-      <div class="gameTop">
-        <div>
-          <span class="pill ${status.toLowerCase()}">${status}</span>
-          <h2>${esc(game.away.name)} @ ${esc(game.home.name)}</h2>
-          <p class="gameMeta">🕒 ${esc(game.status)} ${game.clock ? `• ${esc(game.clock)}` : ''} ${game.period ? `• P${esc(game.period)}` : ''}</p>
-        </div>
-        <div class="winner ${leader.className}">🏆 ${esc(leader.label)}</div>
-      </div>
-      <div class="compareGrid">
-        ${SOURCES.map(source => renderScoreBox(source, pair[source.id], h[source.id] || {})).join('')}
-      </div>
-    </article>`;
-  }).join('');
+  return [...map.values()].sort((a,b) => (a.bestRank-b.bestRank) || String(a.startTime).localeCompare(String(b.startTime)) || a.key.localeCompare(b.key));
 }
-
-function renderScoreBox(source, game, history) {
-  if (!game) {
-    return `<div class="scoreBox"><div class="boxHeader"><span>${esc(source.label)}</span></div><div class="missing">Not found in this feed.</div></div>`;
-  }
-  return `<div class="scoreBox">
-    <div class="boxHeader"><span>${esc(source.label)}</span><span>${esc(game.source.toUpperCase())}</span></div>
-    <div class="scoreLine"><span>${esc(game.away.short)}</span><b>${esc(game.away.score)}</b></div>
-    <div class="scoreLine"><span>${esc(game.home.short)}</span><b>${esc(game.home.score)}</b></div>
-    <div class="smallRows">
-      <p>Last score change seen: <b>${esc(fmtTime(history.lastScoreChangeAt))}</b> (${esc(secondsAgo(history.lastScoreChangeAt))})</p>
-      <p>Changes detected: <b>${esc(history.changes || 0)}</b></p>
-      <p>Score at change: <b>${esc(history.lastScore || '—')}</b></p>
-    </div>
+function sourceSummary(source) {
+  const cls = source.ok ? 'ok' : 'bad';
+  return `<div class="feed ${cls}">
+    <div class="feed-title">${escapeHtml(source.sourceName)}</div>
+    <div class="feed-stats">${source.ok ? `${source.gameCount} games · ${source.durationMs}ms` : `failed · ${source.durationMs}ms`}</div>
+    ${source.error ? `<div class="feed-error">${escapeHtml(source.error)}</div>` : ''}
   </div>`;
 }
-
-function render() {
-  $('pollEvery').textContent = `${(POLL_MS / 1000).toFixed(POLL_MS % 1000 ? 1 : 0)} seconds`;
-  $('lastPoll').textContent = fmtTime(state.lastPollAt);
-  renderSources();
-  renderGames();
-}
-
-function updateCountdown() {
-  if (!state.lastPollAt) {
-    $('nextPoll').textContent = '—';
-    return;
+function render(snapshot) {
+  if (!snapshot) return;
+  sportSections.innerHTML = '';
+  const totalFeeds = (snapshot.sports || []).reduce((n,s) => n + (s.sources?.length || 0), 0);
+  $('lastPoll').textContent = `${fmtTime(snapshot.generatedAt)} (${snapshot.durationMs}ms server)`;
+  $('feedCount').textContent = totalFeeds;
+  for (const sport of snapshot.sports || []) {
+    const node = sportTemplate.content.cloneNode(true);
+    const section = node.querySelector('.sport-card');
+    node.querySelector('h2').textContent = sport.label || sport.sport.toUpperCase();
+    const gameGroups = groupGames(sport.games);
+    const liveCount = gameGroups.filter(g => g.bestRank === 0).length;
+    node.querySelector('.sport-meta').textContent = `${liveCount} live/current · ${gameGroups.length} total matched games · ${sport.sources.length} feeds`;
+    node.querySelector('.feed-grid').innerHTML = sport.sources.map(sourceSummary).join('');
+    node.querySelector('.games').innerHTML = gameGroups.length ? gameGroups.map(renderGameGroup).join('') : '<div class="empty">No games found right now. This is normal out of season or before games start.</div>';
+    sportSections.appendChild(node);
   }
-  const elapsed = Date.now() - new Date(state.lastPollAt).getTime();
-  $('nextPoll').textContent = `${Math.max(0, (POLL_MS - elapsed) / 1000).toFixed(1)}s`;
 }
+function renderGameGroup(group) {
+  const rows = group.rows.sort((a,b) => a.sourceName.localeCompare(b.sourceName));
+  const leader = findLeader(rows);
+  return `<article class="game ${group.bestRank === 0 ? 'live' : ''}">
+    <div class="game-head">
+      <div>
+        <div class="teams">${escapeHtml(group.away)} <span>@</span> ${escapeHtml(group.home)}</div>
+        <div class="game-meta">${statusLabel(group.bestRank)} · ${group.startTime ? new Date(group.startTime).toLocaleString() : 'time unknown'}</div>
+      </div>
+      <div class="leader">Fastest this score: <strong>${leader ? escapeHtml(leader.sourceName) : '—'}</strong>${leader ? ` <span>${ago(leader.at)}</span>` : ''}</div>
+    </div>
+    <div class="score-table">
+      <div class="tr header"><div>Endpoint</div><div>Score</div><div>Status</div><div>First saw current score</div><div>Last changed</div></div>
+      ${rows.map(renderSourceRow).join('')}
+    </div>
+  </article>`;
+}
+function findLeader(rows) {
+  const valid = rows.filter(r => r.scoreKey && !r.scoreKey.includes('?'));
+  if (!valid.length) return null;
+  const latestScore = valid.sort((a,b) => (b.rank === 0) - (a.rank === 0))[0].scoreKey;
+  const winner = state.raceWins.get(raceKey({ ...valid[0], scoreKey: latestScore }));
+  return winner || null;
+}
+function renderSourceRow(g) {
+  const hist = state.history.get(keyFor(g));
+  const rk = state.raceWins.get(raceKey(g));
+  const isWinner = rk?.sourceId === g.sourceId;
+  return `<div class="tr ${isWinner ? 'winner' : ''}">
+    <div class="endpoint">${escapeHtml(g.sourceName)}${isWinner ? ' 🏁' : ''}</div>
+    <div class="score"><b>${g.awayScore ?? '?'}</b> - <b>${g.homeScore ?? '?'}</b></div>
+    <div>${escapeHtml(g.status || '')} ${g.period ? `· P${escapeHtml(g.period)}` : ''} ${g.clock ? `· ${escapeHtml(g.clock)}` : ''}</div>
+    <div>${rk?.sourceId === g.sourceId ? fmtTime(rk.at) : '—'}</div>
+    <div>${hist ? `${fmtTime(hist.lastSeenScoreChangeAt)} (${ago(hist.lastSeenScoreChangeAt)})` : '—'}</div>
+  </div>`;
+}
+function statusLabel(rank) { return rank === 0 ? 'LIVE/CURRENT' : rank === 1 ? 'Scheduled' : rank === 2 ? 'Final' : 'Unknown'; }
+function escapeHtml(str) { return String(str ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 
-$('refreshBtn').addEventListener('click', pollOnce);
-render();
-pollOnce();
-state.timer = setInterval(pollOnce, POLL_MS);
-state.countdownTimer = setInterval(updateCountdown, 200);
+$('intervalText').textContent = `${DEFAULT_REFRESH_MS/1000}s`;
+pollNow();
+restart();

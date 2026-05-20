@@ -1,17 +1,23 @@
-# NBA Score Feed Race
+# Sports API Speed Race
 
-Dashboard to compare whether the NBA CDN or ESPN scoreboard API updates NBA scores faster.
+A Vercel/GitHub-ready dashboard that polls free/public no-key score endpoints every **3 seconds** and shows which endpoint displays score changes first.
 
-## Endpoints compared
+Sports included:
 
-- NBA CDN: `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`
-- ESPN: `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard`
+- NBA
+- MLB
+- NFL
+- NHL
 
-## Why this version fixes the Vercel build
+Each sport has about five feed probes. Some are official league endpoints, some are ESPN public/undocumented endpoints, and some are derived per-game endpoints that need a base scoreboard to discover today’s game IDs.
 
-This version has **zero npm dependencies** and no `package-lock.json`, so Vercel does not need to resolve React/Vite/latest packages. The dashboard is plain HTML/CSS/JS plus Vercel serverless API routes.
+## Important
 
-## Local run
+This app measures **when your deployed Vercel function sees a score update**, not the true internal provider publish timestamp. That is what matters for automation/alerting, but it depends on Vercel region, provider caching, endpoint blocking, and your 3-second polling interval.
+
+NFL has fewer truly public no-key live score sources than NBA/MLB/NHL, so the NFL section uses several ESPN public endpoint variants and clearly labels them.
+
+## Run locally
 
 ```bash
 npm install
@@ -20,15 +26,13 @@ npm run dev
 
 ## Deploy to Vercel
 
-Push this folder to GitHub and import it in Vercel. The app refreshes every 3 seconds by default.
+1. Upload this folder to GitHub.
+2. Import the repo in Vercel.
+3. Build command: `node build.js`
+4. Output directory: `dist`
 
-## Change polling speed
+No API keys are required.
 
-Open with a query string:
+## Change refresh interval
 
-```text
-?pollMs=1000
-?pollMs=5000
-```
-
-Default is `3000` milliseconds.
+The UI defaults to 3000 ms and lets you change it in the input box. The minimum is locked to 3000 ms to avoid hammering free endpoints too hard.
