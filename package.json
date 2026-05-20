@@ -1,20 +1,16 @@
 {
   "name": "nba-score-speed-checker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "start": "vercel dev",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "node build.js",
+    "start": "vercel dev"
   },
-  "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "latest"
+  "engines": {
+    "node": ">=20"
   },
+  "dependencies": {},
   "devDependencies": {}
 }
