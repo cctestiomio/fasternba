@@ -99,9 +99,12 @@ function groupGames(games) {
 }
 function sourceSummary(source) {
   const cls = source.ok ? 'ok' : 'bad';
+  const shownUrl = source.urlTemplate || source.url || '';
   return `<div class="feed ${cls}">
     <div class="feed-title">${escapeHtml(source.sourceName)}</div>
     <div class="feed-stats">${source.ok ? `${source.gameCount} games · ${source.durationMs}ms` : `failed · ${source.durationMs}ms`}</div>
+    ${shownUrl ? `<div class="feed-url"><span>Endpoint:</span> <a href="${escapeAttr(realHref(source.url || shownUrl))}" target="_blank" rel="noreferrer">${escapeHtml(shownUrl)}</a></div>` : ''}
+    ${source.urlsUsed?.length ? `<details class="feed-used"><summary>${source.urlsUsed.length} exact URLs used this poll</summary>${source.urlsUsed.map(u => `<a href="${escapeAttr(realHref(u))}" target="_blank" rel="noreferrer">${escapeHtml(u)}</a>`).join('')}</details>` : ''}
     ${source.error ? `<div class="feed-error">${escapeHtml(source.error)}</div>` : ''}
   </div>`;
 }
@@ -135,7 +138,7 @@ function renderGameGroup(group) {
       <div class="leader">Fastest this score: <strong>${leader ? escapeHtml(leader.sourceName) : '—'}</strong>${leader ? ` <span>${ago(leader.at)}</span>` : ''}</div>
     </div>
     <div class="score-table">
-      <div class="tr header"><div>Endpoint</div><div>Score</div><div>Status</div><div>First saw current score</div><div>Last changed</div></div>
+      <div class="tr header"><div>Endpoint</div><div>Exact URL</div><div>Score</div><div>Status</div><div>First saw current score</div><div>Last changed</div></div>
       ${rows.map(renderSourceRow).join('')}
     </div>
   </article>`;
@@ -153,6 +156,7 @@ function renderSourceRow(g) {
   const isWinner = rk?.sourceId === g.sourceId;
   return `<div class="tr ${isWinner ? 'winner' : ''}">
     <div class="endpoint">${escapeHtml(g.sourceName)}${isWinner ? ' 🏁' : ''}</div>
+    <div class="urlcell">${g.sourceUrl ? `<a href="${escapeAttr(realHref(g.sourceUrl))}" target="_blank" rel="noreferrer">${escapeHtml(g.sourceUrl)}</a>` : '—'}</div>
     <div class="score"><b>${g.awayScore ?? '?'}</b> - <b>${g.homeScore ?? '?'}</b></div>
     <div>${escapeHtml(g.status || '')} ${g.period ? `· P${escapeHtml(g.period)}` : ''} ${g.clock ? `· ${escapeHtml(g.clock)}` : ''}</div>
     <div>${rk?.sourceId === g.sourceId ? fmtTime(rk.at) : '—'}</div>
@@ -160,7 +164,9 @@ function renderSourceRow(g) {
   </div>`;
 }
 function statusLabel(rank) { return rank === 0 ? 'LIVE/CURRENT' : rank === 1 ? 'Scheduled' : rank === 2 ? 'Final' : 'Unknown'; }
+function realHref(url) { return /^https?:\/\//.test(String(url || '')) ? url : '#'; }
 function escapeHtml(str) { return String(str ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+function escapeAttr(str) { return escapeHtml(str).replace(/`/g, '&#96;'); }
 
 $('intervalText').textContent = `${DEFAULT_REFRESH_MS/1000}s`;
 pollNow();

@@ -210,14 +210,16 @@ function parseNhlLanding(data, sport, source) {
 
 async function directFetch(source, sport) {
   const started = Date.now();
-  const data = await fetchJson(source.url());
+  const url = source.url();
+  const data = await fetchJson(url);
   let games = [];
   if (source.type === 'espnScoreboard') games = parseEspnScoreboard(data, sport, source);
   if (source.type === 'nbaCdnScoreboard') games = parseNbaCdnScoreboard(data, sport, source);
   if (source.type === 'mlbSchedule') games = parseMlbSchedule(data, sport, source);
   if (source.type === 'nhlScore' || source.type === 'nhlScoreboard') games = parseNhlScore(data, sport, source);
   if (source.type === 'espnCoreEvents') games = []; // Core events is included as a public probe; it often returns refs, not full scores.
-  return okResult(source, started, games, source.url());
+  games.forEach(g => { g.sourceUrl = scrubUrl(url); });
+  return okResult(source, started, games, url);
 }
 function okResult(source, started, games, url) {
   return { sourceId: source.id, sourceName: source.name, ok: true, durationMs: Date.now() - started, gameCount: games.length, games, url: scrubUrl(url) };
@@ -229,39 +231,85 @@ function scrubUrl(url) { return String(url || '').replace(/apikey=[^&]+/ig, 'api
 
 async function derivedFetch(source, sport, baseResults) {
   const started = Date.now();
+  const urlsUsed = [];
+  const record = (url) => { const clean = scrubUrl(url); urlsUsed.push(clean); return url; };
   try {
     const base = baseResults[source.depends];
     if (!base?.ok || !base.games.length) throw new Error(`No base games from ${source.depends}`);
     const liveish = base.games.filter(g => g.rank <= 2).slice(0, 16);
     let all = [];
     if (source.type === 'nbaCdnBoxscore') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseNbaBoxscore(await fetchJson(`https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${g.externalId}.json`), sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${g.externalId}.json`);
+        const parsed = parseNbaBoxscore(await fetchJson(url), sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
     if (source.type === 'nbaCdnPlayByPlay') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseNbaPbp(await fetchJson(`https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_${g.externalId}.json`), g, sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_${g.externalId}.json`);
+        const parsed = parseNbaPbp(await fetchJson(url), g, sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
     if (source.type === 'espnSummary') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseEspnSummary(await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/${source.sportPath}/summary?event=${g.externalId}`), sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://site.api.espn.com/apis/site/v2/sports/${source.sportPath}/summary?event=${g.externalId}`);
+        const parsed = parseEspnSummary(await fetchJson(url), sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
     if (source.type === 'mlbLiveFeed') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseMlbLiveFeed(await fetchJson(`https://statsapi.mlb.com/api/v1.1/game/${g.externalId}/feed/live`), sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://statsapi.mlb.com/api/v1.1/game/${g.externalId}/feed/live`);
+        const parsed = parseMlbLiveFeed(await fetchJson(url), sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
     if (source.type === 'mlbLinescore') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseMlbLinescore(await fetchJson(`https://statsapi.mlb.com/api/v1/game/${g.externalId}/linescore`), g, sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://statsapi.mlb.com/api/v1/game/${g.externalId}/linescore`);
+        const parsed = parseMlbLinescore(await fetchJson(url), g, sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
     if (source.type === 'nhlLanding') {
-      const arr = await Promise.allSettled(liveish.map(async g => parseNhlLanding(await fetchJson(`https://api-web.nhle.com/v1/gamecenter/${g.externalId}/landing`), sport, source)[0]).filter(Boolean));
+      const arr = await Promise.allSettled(liveish.map(async g => {
+        const url = record(`https://api-web.nhle.com/v1/gamecenter/${g.externalId}/landing`);
+        const parsed = parseNhlLanding(await fetchJson(url), sport, source)[0];
+        if (parsed) parsed.sourceUrl = scrubUrl(url);
+        return parsed;
+      }).filter(Boolean));
       all = arr.filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
     }
-    return okResult(source, started, all, `derived from ${source.depends}`);
+    const templateUrl = derivedUrlTemplate(source);
+    const result = okResult(source, started, all, urlsUsed.length ? urlsUsed[0] : templateUrl);
+    result.urlTemplate = templateUrl;
+    result.urlsUsed = [...new Set(urlsUsed)].slice(0, 20);
+    return result;
   } catch (e) {
-    return errResult(source, started, e, `derived from ${source.depends}`);
+    return errResult(source, started, e, derivedUrlTemplate(source));
   }
+}
+
+function derivedUrlTemplate(source) {
+  if (source.type === 'nbaCdnBoxscore') return 'https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{gameId}.json';
+  if (source.type === 'nbaCdnPlayByPlay') return 'https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json';
+  if (source.type === 'espnSummary') return `https://site.api.espn.com/apis/site/v2/sports/${source.sportPath}/summary?event={eventId}`;
+  if (source.type === 'mlbLiveFeed') return 'https://statsapi.mlb.com/api/v1.1/game/{gamePk}/feed/live';
+  if (source.type === 'mlbLinescore') return 'https://statsapi.mlb.com/api/v1/game/{gamePk}/linescore';
+  if (source.type === 'nhlLanding') return 'https://api-web.nhle.com/v1/gamecenter/{gameId}/landing';
+  return `derived from ${source.depends}`;
 }
 
 async function fetchSport(sport) {
