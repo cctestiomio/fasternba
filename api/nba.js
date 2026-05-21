@@ -1,4 +1,19 @@
 const NBA_URL = 'https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json';
+const NBA_CDN_HEADERS = {
+  'Host': 'cdn.nba.com',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0',
+  'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br, zstd',
+  'Referer': 'https://www.nba.com/',
+  'Origin': 'https://www.nba.com',
+  'Connection': 'keep-alive',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-site',
+  'Priority': 'u=4',
+  'TE': 'trailers'
+};
 
 function safeNumber(value) {
   const n = Number(value);
@@ -45,10 +60,9 @@ export default async function handler(req, res) {
     const upstream = await fetch(`${NBA_URL}?t=${Date.now()}`, {
       cache: 'no-store',
       headers: {
-        'accept': 'application/json,text/plain,*/*',
-        'user-agent': 'Mozilla/5.0 NBA Score Speed Checker',
-        'cache-control': 'no-cache',
-        'pragma': 'no-cache'
+        ...NBA_CDN_HEADERS,
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       }
     });
 

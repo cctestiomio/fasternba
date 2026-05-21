@@ -3,6 +3,34 @@ const TODAY = () => new Date();
 const UA = 'Mozilla/5.0 (compatible; SportsAPISpeedRace/1.0; +https://vercel.app)';
 const FETCH_TIMEOUT_MS = 6500;
 
+const NBA_CDN_HEADERS = {
+  'Host': 'cdn.nba.com',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0',
+  'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br, zstd',
+  'Referer': 'https://www.nba.com/',
+  'Origin': 'https://www.nba.com',
+  'Connection': 'keep-alive',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-site',
+  'Priority': 'u=4',
+  'TE': 'trailers'
+};
+
+function headersForUrl(url) {
+  if (String(url).startsWith('https://cdn.nba.com/')) {
+    return NBA_CDN_HEADERS;
+  }
+  return {
+    'accept': 'application/json,text/plain,*/*',
+    'user-agent': UA,
+    'origin': 'https://www.espn.com',
+    'referer': 'https://www.espn.com/'
+  };
+}
+
 const SPORT_LABELS = { nba: 'NBA', mlb: 'MLB', nfl: 'NFL', nhl: 'NHL' };
 
 function ymd(d = TODAY(), sep = '') {
@@ -63,12 +91,7 @@ async function fetchJson(url) {
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        'accept': 'application/json,text/plain,*/*',
-        'user-agent': UA,
-        'origin': 'https://www.espn.com',
-        'referer': 'https://www.espn.com/'
-      }
+      headers: headersForUrl(url)
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 120)}`);
