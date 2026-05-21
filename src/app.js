@@ -158,7 +158,7 @@ function renderSourceRow(g) {
     <div class="endpoint">${escapeHtml(g.sourceName)}${isWinner ? ' 🏁' : ''}</div>
     <div class="urlcell">${g.sourceUrl ? `<a href="${escapeAttr(realHref(g.sourceUrl))}" target="_blank" rel="noreferrer">${escapeHtml(g.sourceUrl)}</a>` : '—'}</div>
     <div class="score"><b>${g.awayScore ?? '?'}</b> - <b>${g.homeScore ?? '?'}</b></div>
-    <div>${escapeHtml(g.status || '')} ${g.period ? `· P${escapeHtml(g.period)}` : ''} ${g.clock ? `· ${escapeHtml(g.clock)}` : ''}</div>
+    <div>${escapeHtml(g.status || '')} ${g.period ? `· P${escapeHtml(g.period)}` : ''} ${g.clock ? `· ${escapeHtml(g.clock)}` : ''}${g.detail ? `<div class="detail">${escapeHtml(g.detail)}</div>` : ''}</div>
     <div>${rk?.sourceId === g.sourceId ? fmtTime(rk.at) : '—'}</div>
     <div>${hist ? `${fmtTime(hist.lastSeenScoreChangeAt)} (${ago(hist.lastSeenScoreChangeAt)})` : '—'}</div>
   </div>`;

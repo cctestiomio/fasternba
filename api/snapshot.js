@@ -31,7 +31,7 @@ function headersForUrl(url) {
   };
 }
 
-const SPORT_LABELS = { nba: 'NBA', mlb: 'MLB', nfl: 'NFL', nhl: 'NHL' };
+const SPORT_LABELS = { nba: 'NBA', mlb: 'MLB', nfl: 'NFL', nhl: 'NHL', atp: 'ATP Tennis', wta: 'WTA Tennis' };
 
 function ymd(d = TODAY(), sep = '') {
   const y = d.getUTCFullYear();
@@ -82,6 +82,20 @@ const SOURCES = {
     { id: 'nhl-web-scoreboard-now', name: 'NHL API scoreboard/now', type: 'nhlScoreboard', url: () => 'https://api-web.nhle.com/v1/scoreboard/now' },
     { id: 'nhl-gamecenter-landing', name: 'NHL gamecenter landing', type: 'nhlLanding', depends: 'nhl-web-score-now' },
     { id: 'espn-site-nhl', name: 'ESPN site scoreboard', type: 'espnScoreboard', url: () => 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard' }
+  ],
+  atp: [
+    { id: 'espn-site-atp', name: 'ESPN ATP scoreboard', type: 'espnTennisScoreboard', url: () => 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard' },
+    { id: 'espn-site-atp-today', name: 'ESPN ATP scoreboard today', type: 'espnTennisScoreboard', url: () => `https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard?dates=${ymd()}` },
+    { id: 'espn-site-atp-week', name: 'ESPN ATP scoreboard ±3 days', type: 'espnTennisScoreboard', url: () => `https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard?dates=${ymd(addDays(TODAY(), -3))}-${ymd(addDays(TODAY(), 3))}` },
+    { id: 'espn-summary-atp', name: 'ESPN ATP summary per match', type: 'espnSummary', depends: 'espn-site-atp', sportPath: 'tennis/atp' },
+    { id: 'sportsdb-atp-next', name: 'TheSportsDB ATP next events', type: 'sportsDbEvents', url: () => 'https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4464' }
+  ],
+  wta: [
+    { id: 'espn-site-wta', name: 'ESPN WTA scoreboard', type: 'espnTennisScoreboard', url: () => 'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard' },
+    { id: 'espn-site-wta-today', name: 'ESPN WTA scoreboard today', type: 'espnTennisScoreboard', url: () => `https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard?dates=${ymd()}` },
+    { id: 'espn-site-wta-week', name: 'ESPN WTA scoreboard ±3 days', type: 'espnTennisScoreboard', url: () => `https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard?dates=${ymd(addDays(TODAY(), -3))}-${ymd(addDays(TODAY(), 3))}` },
+    { id: 'espn-summary-wta', name: 'ESPN WTA summary per match', type: 'espnSummary', depends: 'espn-site-wta', sportPath: 'tennis/wta' },
+    { id: 'sportsdb-wta-next', name: 'TheSportsDB WTA next events', type: 'sportsDbEvents', url: () => 'https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4517' }
   ]
 };
 
@@ -103,9 +117,9 @@ async function fetchJson(url) {
 
 function statusRank(status = '') {
   const s = String(status).toLowerCase();
-  if (s.includes('progress') || s.includes('live') || s.includes('in_play') || s.includes('intermission') || s.includes('period') || s.includes('quarter') || s.includes('halftime')) return 0;
+  if (s.includes('progress') || s.includes('live') || s.includes('in_play') || s.includes('intermission') || s.includes('period') || s.includes('quarter') || s.includes('halftime') || s.includes('set ') || s.includes('suspended')) return 0;
   if (s.includes('pre') || s.includes('sched') || s.includes('created')) return 1;
-  if (s.includes('final') || s.includes('post') || s.includes('complete') || s.includes('off')) return 2;
+  if (s.includes('final') || s.includes('post') || s.includes('complete') || s.includes('off') || s.includes('retired') || s.includes('walkover')) return 2;
   return 3;
 }
 function makeGameKey(sport, away, home, startTime, id = '') {
@@ -115,13 +129,13 @@ function makeGameKey(sport, away, home, startTime, id = '') {
 }
 function cleanTeam(v) { return String(v || '').trim().replace(/\s+/g, ' '); }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
-function gameObj({ sport, sourceId, sourceName, id, externalId, away, home, awayScore, homeScore, status, clock, period, startTime, rawStatus }) {
+function gameObj({ sport, sourceId, sourceName, id, externalId, away, home, awayScore, homeScore, status, clock, period, startTime, rawStatus, detail, scoreKey }) {
   const key = makeGameKey(sport, away, home, startTime, id || externalId);
   return {
     sport, sourceId, sourceName, id: String(id || externalId || key), externalId: String(externalId || id || ''), key,
     away: cleanTeam(away), home: cleanTeam(home), awayScore: num(awayScore), homeScore: num(homeScore),
-    scoreKey: `${num(awayScore) ?? '?'}-${num(homeScore) ?? '?'}`,
-    status: status || rawStatus || 'unknown', rawStatus: rawStatus || status || '', clock: clock || '', period: period || '', startTime: startTime || '', rank: statusRank(status || rawStatus)
+    scoreKey: scoreKey || `${num(awayScore) ?? '?'}-${num(homeScore) ?? '?'}`,
+    status: status || rawStatus || 'unknown', rawStatus: rawStatus || status || '', clock: clock || '', period: period || '', startTime: startTime || '', detail: detail || '', rank: statusRank(status || rawStatus)
   };
 }
 
@@ -148,6 +162,61 @@ function parseEspnSummary(data, sport, source) {
   const comp = data?.header?.competitions?.[0] || data?.boxscore?.teams?.[0]?.team ? data?.header?.competitions?.[0] : null;
   if (comp?.competitors) return parseEspnScoreboard({ events: [{ id: data?.header?.id || comp.id, competitions: [comp], date: comp.date }] }, sport, source);
   return [];
+}
+
+function tennisSetSummary(competitor) {
+  const scores = Array.isArray(competitor?.linescores) ? competitor.linescores : [];
+  return scores.map(ls => {
+    const v = ls?.displayValue ?? ls?.value;
+    const tb = ls?.tiebreak != null ? `(${ls.tiebreak})` : '';
+    return `${v ?? ''}${tb}`;
+  }).filter(Boolean).join(' ');
+}
+function tennisSetsWon(competitor) {
+  const scores = Array.isArray(competitor?.linescores) ? competitor.linescores : [];
+  return scores.reduce((n, ls) => n + (ls?.winner ? 1 : 0), 0);
+}
+function flattenTennisCompetitions(data) {
+  const out = [];
+  if (Array.isArray(data?.header?.competitions)) {
+    for (const competition of data.header.competitions) out.push({ event: data.header, competition, grouping: null });
+  }
+  const events = data?.events || data?.sports?.[0]?.leagues?.[0]?.events || [];
+  for (const ev of events) {
+    const direct = Array.isArray(ev?.competitions) ? ev.competitions.map(c => ({ event: ev, competition: c, grouping: null })) : [];
+    out.push(...direct);
+    for (const grouping of ev?.groupings || []) {
+      for (const competition of grouping?.competitions || []) out.push({ event: ev, competition, grouping });
+    }
+  }
+  return out;
+}
+function parseEspnTennisScoreboard(data, sport, source) {
+  return flattenTennisCompetitions(data).map(({ event, competition, grouping }) => {
+    const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
+    const awayC = competitors.find(c => c.homeAway === 'away') || competitors.find(c => Number(c.order) === 2) || competitors[1] || competitors[0] || {};
+    const homeC = competitors.find(c => c.homeAway === 'home') || competitors.find(c => Number(c.order) === 1) || competitors[0] || competitors[1] || {};
+    const st = competition?.status || event?.status || {};
+    const awaySets = tennisSetsWon(awayC);
+    const homeSets = tennisSetsWon(homeC);
+    const awayLine = tennisSetSummary(awayC);
+    const homeLine = tennisSetSummary(homeC);
+    const round = competition?.round?.displayName || '';
+    const type = competition?.type?.text || grouping?.grouping?.displayName || '';
+    const court = competition?.venue?.court || competition?.venue?.fullName || '';
+    const detail = [event?.shortName || event?.name, type, round, court].filter(Boolean).join(' · ');
+    return gameObj({
+      sport, sourceId: source.id, sourceName: source.name, id: competition?.id || event?.id, externalId: competition?.id || event?.id,
+      away: awayC?.athlete?.displayName || awayC?.athlete?.shortName || awayC?.team?.displayName || awayC?.id,
+      home: homeC?.athlete?.displayName || homeC?.athlete?.shortName || homeC?.team?.displayName || homeC?.id,
+      awayScore: awaySets, homeScore: homeSets,
+      status: st?.type?.shortDetail || st?.type?.detail || st?.type?.description || st?.type?.name || st?.type?.state,
+      rawStatus: st?.type?.state,
+      clock: [awayLine && `${awayLine}`, homeLine && `${homeLine}`].filter(Boolean).join(' / '),
+      period: st?.period || '', startTime: competition?.date || competition?.startDate || event?.date,
+      detail, scoreKey: `${awaySets}-${homeSets}|${awayLine}/${homeLine}|${st?.type?.shortDetail || st?.type?.state || ''}`
+    });
+  }).filter(g => g.away && g.home);
 }
 function parseNbaCdnScoreboard(data, sport, source) {
   const games = data?.scoreboard?.games || [];
@@ -231,15 +300,30 @@ function parseNhlLanding(data, sport, source) {
   })].filter(g => g.away && g.home);
 }
 
+function parseSportsDbEvents(data, sport, source) {
+  const events = data?.events || data?.event || [];
+  return events.map(ev => gameObj({
+    sport, sourceId: source.id, sourceName: source.name, id: ev.idEvent, externalId: ev.idEvent,
+    away: ev.strAwayTeam || ev.strAwayTeamAlternate || ev.strEvent?.split(' vs ')?.[1] || ev.strEvent?.split(' v ')?.[1],
+    home: ev.strHomeTeam || ev.strHomeTeamAlternate || ev.strEvent?.split(' vs ')?.[0] || ev.strEvent?.split(' v ')?.[0],
+    awayScore: ev.intAwayScore, homeScore: ev.intHomeScore,
+    status: ev.strStatus || (ev.intHomeScore != null || ev.intAwayScore != null ? 'Final/Result' : 'Scheduled'),
+    clock: ev.strTimestamp || ev.strTime || '', period: ev.strRound || '', startTime: ev.strTimestamp || [ev.dateEvent, ev.strTime].filter(Boolean).join('T'),
+    detail: [ev.strLeague, ev.strSeason, ev.strVenue, ev.strCountry].filter(Boolean).join(' · ')
+  })).filter(g => g.away && g.home);
+}
+
 async function directFetch(source, sport) {
   const started = Date.now();
   const url = source.url();
   const data = await fetchJson(url);
   let games = [];
   if (source.type === 'espnScoreboard') games = parseEspnScoreboard(data, sport, source);
+  if (source.type === 'espnTennisScoreboard') games = parseEspnTennisScoreboard(data, sport, source);
   if (source.type === 'nbaCdnScoreboard') games = parseNbaCdnScoreboard(data, sport, source);
   if (source.type === 'mlbSchedule') games = parseMlbSchedule(data, sport, source);
   if (source.type === 'nhlScore' || source.type === 'nhlScoreboard') games = parseNhlScore(data, sport, source);
+  if (source.type === 'sportsDbEvents') games = parseSportsDbEvents(data, sport, source);
   if (source.type === 'espnCoreEvents') games = []; // Core events is included as a public probe; it often returns refs, not full scores.
   games.forEach(g => { g.sourceUrl = scrubUrl(url); });
   return okResult(source, started, games, url);
@@ -282,7 +366,8 @@ async function derivedFetch(source, sport, baseResults) {
     if (source.type === 'espnSummary') {
       const arr = await Promise.allSettled(liveish.map(async g => {
         const url = record(`https://site.api.espn.com/apis/site/v2/sports/${source.sportPath}/summary?event=${g.externalId}`);
-        const parsed = parseEspnSummary(await fetchJson(url), sport, source)[0];
+        const summaryData = await fetchJson(url);
+        const parsed = (sport === 'atp' || sport === 'wta' ? parseEspnTennisScoreboard(summaryData, sport, source) : parseEspnSummary(summaryData, sport, source))[0];
         if (parsed) parsed.sourceUrl = scrubUrl(url);
         return parsed;
       }).filter(Boolean));
@@ -363,6 +448,6 @@ module.exports = async function handler(req, res) {
     durationMs: Date.now() - started,
     pollIntervalRecommendedMs: 3000,
     sports: sportsData,
-    note: 'All feeds are free/public/no-key probes. Some are undocumented and may be blocked, delayed, cached, or unavailable outside game windows.'
+    note: 'All feeds are free/public/no-key probes. ATP/WTA use ESPN public tennis score feeds plus TheSportsDB no-key/free league schedule probes. Some are undocumented and may be blocked, delayed, cached, or unavailable outside match windows.'
   });
 };
