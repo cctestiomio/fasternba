@@ -25,6 +25,9 @@ Optional probes activated by environment variables:
 - `BALLDONTLIE_API_KEY` or `BDL_API_KEY` for balldontlie NBA/NFL/MLB/NHL/PGA-style endpoints
 - `GRID_API_KEY` or `GRIDGG_API_KEY` for GRID.gg CS2/Dota2 series-state verification notes
 - `GRID_ACCESS_LEVEL=open` or `GRID_ACCESS_LEVEL=full` to choose the GRID endpoint family
+- `HLTV_GO_API_BASE_URL` / `HLTV_API_BASE_URL` for a self-hosted Go HLTV API, e.g. `http://localhost:8080`; the app probes `/api/live-now`, `/api/matches`, and `/api/last-results`
+- `APIFY_TOKEN` / `APIFY_API_TOKEN` for the Apify HLTV live/upcoming actor; override actor with `HLTV_APIFY_ACTOR_ID` if needed
+- `HLTV_NODE_ENABLED=true` to try gigobyte/HLTV from Node. Install it in your deployment with `npm install hltv` first. This is off by default because HLTV Cloudflare can throttle or ban abusive scraping.
 - `THESPORTSDB_API_KEY` if you have your own TheSportsDB key instead of the public test key
 
 ## Important limitations

@@ -18,6 +18,9 @@ These do not hardcode secrets. They only run when environment variables are pres
 - `GRID_API_KEY` / `GRIDGG_API_KEY`: GRID.gg CS2/Dota2 series-state endpoint note/probe.
 - `GRID_ACCESS_LEVEL=open|full`: selects `api-op.grid.gg` or `api.grid.gg`.
 - `THESPORTSDB_API_KEY`: overrides TheSportsDB public test key.
+- `HLTV_GO_API_BASE_URL` / `HLTV_API_BASE_URL`: enables self-hosted Go HLTV API probes for CS2 (`/api/live-now`, `/api/matches`, `/api/last-results`).
+- `APIFY_TOKEN` / `APIFY_API_TOKEN`: enables the Apify HLTV live/upcoming actor for CS2.
+- `HLTV_NODE_ENABLED=true`: enables optional gigobyte/HLTV Node library probes if the `hltv` npm package is installed in the deployment.
 
 ## Market-safety notes
 

@@ -6,6 +6,10 @@ const THE_SPORTS_DB_KEY = process.env.THESPORTSDB_API_KEY || '3'; // public test
 const BDL_KEY = process.env.BALLDONTLIE_API_KEY || process.env.BDL_API_KEY || '';
 const GRID_KEY = process.env.GRID_API_KEY || process.env.GRIDGG_API_KEY || '';
 const GRID_ACCESS_LEVEL = String(process.env.GRID_ACCESS_LEVEL || 'open').toLowerCase();
+const HLTV_GO_API_BASE_URL = String(process.env.HLTV_GO_API_BASE_URL || process.env.HLTV_API_BASE_URL || '').replace(/\/+$/, '');
+const HLTV_NODE_ENABLED = /^(1|true|yes)$/i.test(String(process.env.HLTV_NODE_ENABLED || '0'));
+const APIFY_TOKEN = process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || '';
+const HLTV_APIFY_ACTOR_ID = process.env.HLTV_APIFY_ACTOR_ID || 'paco_nassa~hltv-org-live-and-upcoming-matches';
 
 const NBA_CDN_HEADERS = {
   'Host': 'cdn.nba.com',
@@ -29,6 +33,7 @@ function headersForUrl(url) {
   const h = { 'accept': 'application/json,text/plain,*/*', 'user-agent': UA };
   if (u.includes('espn.com')) { h.origin = 'https://www.espn.com'; h.referer = 'https://www.espn.com/'; }
   if (u.includes('grid.gg') && GRID_KEY) h['x-api-key'] = GRID_KEY;
+  if (u.includes('apify.com') && APIFY_TOKEN) h.authorization = `Bearer ${APIFY_TOKEN}`;
   if (u.includes('balldontlie') && BDL_KEY) h.Authorization = BDL_KEY;
   return h;
 }
@@ -97,6 +102,9 @@ const epsnSummary = (id, label, depends, sportPath) => ({ id, name: label, type:
 const sportsDb = (id, label, leagueId) => ({ id, name: label, type: 'sportsDbEvents', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/eventsnextleague.php?id=${leagueId}` });
 const sportsDbLast = (id, label, leagueId) => ({ id, name: label, type: 'sportsDbEvents', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/eventspastleague.php?id=${leagueId}` });
 const bdl = (id, label, path) => ({ id, name: label, type: 'ballDontLie', needsKey: true, url: () => `https://api.balldontlie.io/v1/${path}` });
+const hltvGo = (id, label, path) => ({ id, name: label, type: 'hltvGo', needsHltvGo: true, url: () => `${HLTV_GO_API_BASE_URL}${path}` });
+const hltvNode = (id, label, method) => ({ id, name: label, type: 'hltvNode', method });
+const hltvApify = (id, label) => ({ id, name: label, type: 'hltvApify', needsApify: true, url: () => `https://api.apify.com/v2/acts/${HLTV_APIFY_ACTOR_ID}/run-sync-get-dataset-items?token=${APIFY_TOKEN}` });
 
 const SOURCES = {
   nba: [
@@ -133,7 +141,16 @@ const SOURCES = {
   volleyball: [epsn('espn-site-volleyball', 'ESPN volleyball probe', 'volleyball/ncaa-womens-volleyball', `?dates=${todayRange()}&limit=100`), sportsDb('sportsdb-volleyball-next', 'TheSportsDB volleyball next events', 4560), sportsDbLast('sportsdb-volleyball-last', 'TheSportsDB volleyball recent events', 4560)],
   rugby: [epsn('espn-site-rugby', 'ESPN rugby scoreboard probe', 'rugby/242041', `?dates=${todayRange()}&limit=100`), sportsDb('sportsdb-rugby-next', 'TheSportsDB rugby union next events', 4415), sportsDbLast('sportsdb-rugby-last', 'TheSportsDB rugby union recent events', 4415)],
   valorant: [{ id: 'vlrggapi-note', name: 'vlrggapi optional self-host note', type: 'note', note: 'No durable no-key official VALORANT score API. If you self-host vlrggapi, add VLRGGAPI_BASE_URL and wire its match endpoint here.' }, { id: 'sportsdb-esports-valorant-search', name: 'TheSportsDB esports probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=Valorant` }],
-  cs2: [{ id: 'grid-cs2-series-state', name: 'GRID.gg CS2 Series State (optional key)', type: 'gridNote' }, { id: 'sportsdb-esports-cs2-search', name: 'TheSportsDB CS2 event search probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=Counter-Strike` }],
+  cs2: [
+    hltvGo('hltv-go-live-now', 'HLTV Go API live-now (self-host)', '/api/live-now'),
+    hltvGo('hltv-go-matches', 'HLTV Go API matches (self-host)', '/api/matches'),
+    hltvGo('hltv-go-last-results', 'HLTV Go API last-results (self-host)', '/api/last-results'),
+    hltvApify('hltv-apify-live-upcoming', 'Apify HLTV live/upcoming actor (optional token)'),
+    hltvNode('hltv-node-get-matches', 'gigobyte/HLTV getMatches() (optional local package)', 'getMatches'),
+    hltvNode('hltv-node-get-results', 'gigobyte/HLTV getResults() (optional local package)', 'getResults'),
+    { id: 'grid-cs2-series-state', name: 'GRID.gg CS2 Series State (optional key)', type: 'gridNote' },
+    { id: 'sportsdb-esports-cs2-search', name: 'TheSportsDB CS2 event search probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=Counter-Strike` }
+  ],
   csgo: [], dota2: [{ id: 'grid-dota2-series-state', name: 'GRID.gg Dota2 Series State (optional key)', type: 'gridNote' }, { id: 'sportsdb-esports-dota-search', name: 'TheSportsDB Dota event search probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=Dota` }], dota: [],
   lol: [{ id: 'sportsdb-esports-lol-search', name: 'TheSportsDB LoL event search probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=League%20of%20Legends` }], 'league of legends': [],
   overwatch: [{ id: 'sportsdb-esports-overwatch-search', name: 'TheSportsDB Overwatch event search probe', type: 'sportsDbSearch', url: () => `https://www.thesportsdb.com/api/v1/json/${THE_SPORTS_DB_KEY}/searchevents.php?e=Overwatch` }],
@@ -220,21 +237,76 @@ function parseLichessTv(data, sport, source) {
   return [gameObj({ sport, sourceId: source.id, sourceName: source.name, id: 'lichess-tv', away: 'Lichess', home: 'TV Feed', status: 'Public API alive', detail: 'Streaming NDJSON endpoint responded', startTime: new Date().toISOString(), scoreKey: 'alive' })];
 }
 
+function pickFirst(obj, keys) {
+  for (const key of keys) {
+    const v = obj?.[key];
+    if (v != null && v !== '') return v;
+  }
+  return '';
+}
+function teamNameFromAny(v) {
+  if (!v) return '';
+  if (typeof v === 'string') return v;
+  return pickFirst(v, ['name', 'teamName', 'title', 'displayName', 'shortName', 'tag']) || String(v.id || '');
+}
+function splitScore(v) {
+  if (Array.isArray(v) && v.length >= 2) return [num(v[0]), num(v[1])];
+  const m = String(v || '').match(/(\d+)\s*[-:–]\s*(\d+)/);
+  return m ? [num(m[1]), num(m[2])] : [null, null];
+}
+function parseHltvGeneric(data, sport, source) {
+  const rows = Array.isArray(data) ? data : (data?.data || data?.matches || data?.results || data?.items || data?.events || []);
+  return rows.map((r, idx) => {
+    const team1 = r.team1 || r.teamA || r.homeTeam || r.home || r.teams?.[0] || r.opponents?.[0]?.opponent || r.opponents?.[0];
+    const team2 = r.team2 || r.teamB || r.awayTeam || r.away || r.teams?.[1] || r.opponents?.[1]?.opponent || r.opponents?.[1];
+    const home = teamNameFromAny(team1);
+    const away = teamNameFromAny(team2);
+    const [score1, score2] = splitScore(r.score || r.result || r.mapScore || r.currentScore || r.scoreText);
+    const s1 = num(r.team1Score ?? r.homeScore ?? r.score1 ?? r.mapsWon1 ?? r.result?.team1) ?? score1;
+    const s2 = num(r.team2Score ?? r.awayScore ?? r.score2 ?? r.mapsWon2 ?? r.result?.team2) ?? score2;
+    const status = pickFirst(r, ['status', 'state', 'time', 'liveStatus']) || (r.live ? 'Live' : (s1 != null || s2 != null ? 'Result' : 'Scheduled'));
+    const startTime = r.date || r.startTime || r.startTimeUTC || r.timestamp || r.timeUnix || r.unixTime || '';
+    return gameObj({
+      sport, sourceId: source.id, sourceName: source.name, id: r.id || r.matchId || r.url || `${source.id}-${idx}`,
+      externalId: r.id || r.matchId || '', away, home, awayScore: s2, homeScore: s1, status,
+      startTime: typeof startTime === 'number' ? new Date(startTime > 9999999999 ? startTime : startTime * 1000).toISOString() : startTime,
+      detail: [r.event?.name || r.eventName || r.event, r.map, r.format, r.url].filter(Boolean).join(' · '),
+      scoreKey: s1 != null || s2 != null ? `${s1 ?? '?'}-${s2 ?? '?'}` : (r.score || r.result || 'hltv')
+    });
+  }).filter(g => g.away && g.home);
+}
+async function fetchHltvNode(source, sport) {
+  const started = Date.now();
+  if (!HLTV_NODE_ENABLED) return okResult(source, started, [gameObj({ sport, sourceId: source.id, sourceName: source.name, away: 'gigobyte/HLTV', home: 'Disabled', status: 'Optional verifier', detail: 'Set HLTV_NODE_ENABLED=true and install npm package hltv to enable this scraper. Keep request volume low because HLTV Cloudflare can throttle/ban abusive scraping.', scoreKey: 'disabled' })], 'npm:hltv');
+  let pkg;
+  try { pkg = require('hltv'); } catch (e) { throw new Error('npm package hltv is not installed. Run npm install hltv or leave HLTV_NODE_ENABLED=false.'); }
+  const api = pkg.HLTV || pkg.default || pkg;
+  if (!api || typeof api[source.method] !== 'function') throw new Error(`hltv package does not expose ${source.method}()`);
+  const data = await api[source.method](source.method === 'getResults' ? { pages: 1 } : {});
+  const games = parseHltvGeneric(data, sport, source);
+  games.forEach(g => { g.sourceUrl = 'npm:hltv'; });
+  return okResult(source, started, games, 'npm:hltv');
+}
+
 async function directFetch(source, sport) {
   const started = Date.now();
   if (source.type === 'note') return okResult(source, started, [gameObj({ sport, sourceId: source.id, sourceName: source.name, away: 'No-key API', home: 'Not available', status: 'Informational', detail: source.note, scoreKey: 'note' })], '');
+  if (source.type === 'hltvNode') return fetchHltvNode(source, sport);
   if (source.type === 'gridNote') {
     const endpoint = GRID_ACCESS_LEVEL === 'full' ? 'https://api.grid.gg/live-data-feed/series-state/graphql' : 'https://api-op.grid.gg/live-data-feed/series-state/graphql';
     const detail = GRID_KEY ? `GRID key configured. Series-state API needs a mapped seriesId before it can verify a market. Endpoint: ${endpoint}` : 'Set GRID_API_KEY or GRIDGG_API_KEY plus a mapped seriesId to use GRID. No generic no-key CS2/Dota2 live score endpoint is available.';
     return okResult(source, started, [gameObj({ sport, sourceId: source.id, sourceName: source.name, away: 'GRID.gg', home: GRID_KEY ? 'Configured' : 'Needs key', status: 'Optional verifier', detail, scoreKey: GRID_KEY ? 'configured' : 'needs-key' })], endpoint);
   }
   if (source.needsKey && !BDL_KEY) return errResult(source, started, 'Optional free API key not configured. Set BALLDONTLIE_API_KEY to enable this feed.', source.url());
+  if (source.needsHltvGo && !HLTV_GO_API_BASE_URL) return errResult(source, started, 'Optional HLTV Go API base URL not configured. Set HLTV_GO_API_BASE_URL, e.g. http://localhost:8080, after self-hosting the Go HLTV API.', 'HLTV_GO_API_BASE_URL');
+  if (source.needsApify && !APIFY_TOKEN) return errResult(source, started, 'Optional Apify token not configured. Set APIFY_TOKEN or APIFY_API_TOKEN to enable the HLTV Apify actor.', source.url());
   const url = source.url();
   let data;
   if (source.type === 'lichessTv') {
     const controller = new AbortController(); const t = setTimeout(() => controller.abort(), 1800);
     try { const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/x-ndjson', 'user-agent': UA } }); if (!res.ok) throw new Error(`HTTP ${res.status}`); data = {}; } finally { clearTimeout(t); }
-  } else data = await fetchJson(url);
+  } else if (source.type === 'hltvApify') data = await fetchJson(url, { method: 'POST', body: JSON.stringify({}), headers: { 'content-type': 'application/json' } });
+  else data = await fetchJson(url);
   let games = [];
   if (source.type === 'espnScoreboard') games = parseEspnScoreboard(data, sport, source);
   if (source.type === 'espnTennisScoreboard') games = parseEspnTennisScoreboard(data, sport, source);
@@ -243,6 +315,7 @@ async function directFetch(source, sport) {
   if (source.type === 'nhlScore' || source.type === 'nhlScoreboard') games = parseNhlScore(data, sport, source);
   if (source.type === 'sportsDbEvents' || source.type === 'sportsDbSearch') games = parseSportsDbEvents(data, sport, source);
   if (source.type === 'ballDontLie') games = parseBallDontLie(data, sport, source);
+  if (source.type === 'hltvGo' || source.type === 'hltvApify') games = parseHltvGeneric(data, sport, source);
   if (source.type === 'chessCom') games = parseChessCom(data, sport, source);
   if (source.type === 'lichessTv') games = parseLichessTv(data, sport, source);
   if (source.type === 'espnCoreEvents') games = [];
@@ -314,6 +387,6 @@ module.exports = async function handler(req, res) {
   const sportsData = await Promise.all(sports.map(fetchSport));
   res.status(200).json({
     generatedAt: new Date().toISOString(), durationMs: Date.now() - started, pollIntervalRecommendedMs: 3000, supportedTags: Object.keys(SOURCES).sort(), sports: sportsData,
-    note: 'Patched for the SPORTS_TAGS list. Default probes are free/public/no-key where possible: ESPN public scoreboards, official NBA/MLB/NHL endpoints, TheSportsDB public API, Chess.com/Lichess public probes. Optional free-key/freemium probes activate from BALLDONTLIE_API_KEY and GRID_API_KEY/GRIDGG_API_KEY. Esports coverage is intentionally conservative because durable no-key official live-score APIs are scarce.'
+    note: 'Patched for the SPORTS_TAGS list. Default probes are free/public/no-key where possible: ESPN public scoreboards, official NBA/MLB/NHL endpoints, TheSportsDB public API, Chess.com/Lichess public probes. Optional free-key/freemium probes activate from BALLDONTLIE_API_KEY and GRID_API_KEY/GRIDGG_API_KEY. Esports coverage is intentionally conservative because durable no-key official live-score APIs are scarce. CS2 now includes optional HLTV probes: self-hosted Go HLTV API via HLTV_GO_API_BASE_URL, Apify via APIFY_TOKEN, and gigobyte/HLTV via HLTV_NODE_ENABLED=true plus npm package hltv.'
   });
 };
