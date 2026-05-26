@@ -2,7 +2,7 @@
   "name": "sports-api-speed-race",
   "version": "1.0.0",
   "private": true,
-  "description": "Compare free/public sports score endpoints side by side for NBA, MLB, NFL, NHL, ATP tennis, and WTA tennis.",
+  "description": "Compare free/public sports and esports score/API endpoints side by side for a wide set of market tags.",
   "scripts": {
     "dev": "vercel dev",
     "build": "node build.js",
